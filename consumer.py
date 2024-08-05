@@ -7,22 +7,30 @@ from aiormq.abc import DeliveredMessage
 
 async def on_message(message: DeliveredMessage):
     try:
+        # Получаем заголовки сообщения
         headers = message.header.properties.headers
 
+        # Получаем время, когда сообщение требует обработки
         scheduled_time = datetime.fromisoformat(headers.get('scheduled_time')).astimezone(timezone.utc)
 
+        # Получаем текущее время
         current_time = datetime.now(timezone.utc)
 
+        # Сравниваем текущее время со временем из сообщения
         if current_time >= scheduled_time:
             print(f'Processing {message.body.decode()}')
 
+            # Эмулируем обработку сообщения
             await asyncio.sleep(1)
 
+            # Отправляем подтверждение брокеру
             await message.channel.basic_ack(delivery_tag=message.delivery.delivery_tag)
         else:
+            # Считаем время до обработки в миллисекундах
             delay = int((scheduled_time - current_time).total_seconds() * 1000)
             print(f'Deferring {message.body.decode()}, delay: {delay} ms')
 
+            # Публикуем сообщение в `delayed_exchange` с заданной задержкой
             await message.channel.basic_publish(
                 body=message.body,
                 routing_key='main_queue',
@@ -35,14 +43,17 @@ async def on_message(message: DeliveredMessage):
                 ),
             )
 
+            # Отклонением сообщение без повторной отправки в основную очередь
             await message.channel.basic_reject(delivery_tag=message.delivery.delivery_tag, requeue=False)
     except Exception as e:
         print(f'Error: {e}')
 
+        # Отправляем брокеру сообщение о неудачной обработке
         await message.channel.basic_nack(delivery_tag=message.delivery.delivery_tag, requeue=True)
 
 
 async def consume(channel):
+    # Настраиваем консьюмер на прослушивание `main_queue` очереди
     await channel.basic_consume('main_queue', on_message, no_ack=False)
 
 
@@ -71,7 +82,7 @@ async def create_channel(connection):
 
 async def main():
     # Указываем параметры соединения с брокером
-    connection_params = "amqp://login:password@host/"
+    connection_params = ""
     # Запускаем бесконечный цикл попыток соединения с брокером
     while True:
         try:
